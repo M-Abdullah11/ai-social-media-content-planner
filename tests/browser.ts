@@ -1,0 +1,37 @@
+import {chromium} from "playwright";
+import {createApp} from "../src/server.ts";
+import {Store} from "../src/store.ts";
+import {readFileSync,mkdirSync} from "node:fs";
+import {once} from "node:events";
+import assert from "node:assert/strict";
+const store=new Store();
+const server=createApp(store,readFileSync("dist/index.html","utf8")).listen(0,"127.0.0.1");
+await once(server,"listening");
+const address=server.address();assert.ok(address&&typeof address==="object");
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||undefined,headless:true,args:["--no-sandbox"]});
+try{
+ const page=await browser.newPage({viewport:{width:1280,height:1000}});
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
+ await page.goto("http://127.0.0.1:"+address.port);
+ await page.getByLabel("business",{exact:true}).fill("Acme AI");
+ await page.getByLabel("description",{exact:true}).fill("AI workflow tools for teams");
+ await page.getByLabel("audience",{exact:true}).fill("Technology managers");
+ await page.getByLabel("objective",{exact:true}).fill("Product launch");
+ await page.getByRole("button",{name:"Save brief"}).click();
+ await page.getByRole("button",{name:"Generate demo templates"}).click();
+ await page.getByText("Acme AI: Discover what we're building.").waitFor();
+ await page.getByRole("button",{name:"Edit draft"}).first().click();
+ await page.locator(".card textarea").fill("Introducing Acme AI — make work simpler.");
+ await page.getByRole("button",{name:"Save changes"}).click();
+ await page.getByText("Introducing Acme AI — make work simpler.").waitFor();
+ await page.getByLabel("Schedule date").first().fill("2099-01-01T12:00");
+ await page.getByRole("button",{name:"Schedule",exact:true}).first().click();
+ await page.getByText("Scheduled:",{exact:false}).first().waitFor();
+ mkdirSync("screenshots",{recursive:true});
+ await page.screenshot({path:"screenshots/dashboard.png",fullPage:true});
+ await page.getByRole("button",{name:"Calendar",exact:true}).click();
+ await page.getByText("Introducing Acme AI — make work simpler.").waitFor();
+ await page.screenshot({path:"screenshots/calendar.png",fullPage:true});
+ assert.deepEqual(errors,[]);
+ console.log("Browser workflow passed: create, generate demo, edit, schedule, calendar.");
+}finally{await browser.close();server.close();store.db.close();}
